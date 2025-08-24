@@ -1,58 +1,67 @@
-provider "aws" {
-    region = "eu-north-1"
+
+# -2- we want to establish authentication to the eks cluster
+# in order to talk to k8s and provision eks resources 
+
+
+#k8s api server needs tree things to trust terraform
+#1- host : api server endpoint 
+#2- cluster_ca_certificate : to establish TLs trust 
+#3- token/credentials : authentication token 
+
+provider "kubernetes" {
+    host = data.aws_eks_cluster.eks.endpoint
+    client_certificate = base64decode(data.aws_eks_cluster_auth.eks.certificate_authority[0].data)
+#   token =  deprecated
+# use aws cli
+    exec {
+        api_version = "client.authentication.k8s.io/v1beta1"
+        command     = "aws"
+        args        = ["eks", "get-token", "--cluster-name", data.aws_eks_cluster.eks.name]
+    }
+
 }
 
-# things that I remembered : 
-# so creating a vpc for an eks is really different from the ec2 instances
-# because we are needy for assuring scalability and high availability via replication over az and subnets
-
-# okay so we are going to use a specific module from terraform registry that is quite similar to the aws cloudformation template 
-
-#vpc requirement or obligatory attributes
-# module source and version
-# availability zones, subnet cidr_blocks(private and public),vpc name and vpc_cidr_block 
-# and tags for the ccm -> tags (eks name, public, private)
-
-# ---
-# enable nate gateway also make sure that one nat gateway is the gate
-# enable dns_hostname
-
-
-data "aws_availability_zones" "available" {
-  
+data "aws_eks_cluster" "eks" {
+  name = module.eks.cluster_id
 }
 
-module "vpc" {
-    source  = "terraform-aws-modules/vpc/aws"
-    version = "5.0.0"
+data "aws_eks_cluster_auth" "eks" {
+  name = module.eks.cluster_id
+}
 
-    name = "my-eks-vpc-terraform"
-    cidr = var.vpc_cidr_block
-    azs = data.aws_availability_zones.available.names
 
-    private_subnets = var.private_subnet_cidr_blocks
-    public_subnets = var.public_subnet_cidr_blocks
+#1- we want to create the eks cluster using module
+module "eks" {
+    source  = "terraform-aws-modules/eks/aws"
+    version = "21.1.0"
 
-    enable_nat_gateway = true
-    single_nat_gateway = true
-    enable_dns_hostnames = true
-
-    #--------------------------
-    #tags
-
+  # cluster name and k8s version
+    name = "eks-app"
+    kubernetes_version = "1.27"
+  # cluster tags 
     tags = {
-      "kubernetes.io/cluster/myapp-eks-cluster" = "shared"
+        "environment": "development"
+        "application": "my_app"
     }
 
-    public_subnet_tags = {
-        "kubernetes.io/cluster/myapp-eks-cluster" = "shared"
-        "kubernetes.io/role/elb" = 1       
-    }
+  # vpc & subnet
+  vpc_id = module.vpc.vpc_id
+  subnet_ids = module.vpc.private_subnets # which one (public or private) --> we are creating control plan not worker node so the worker must be private and ccp public.
+  
+  
+  # worker group --> nodes
+  eks_managed_node_groups = {
+    dev = {
+        min_size     = 1
+        max_size     = 3
+        desired_size = 3
 
-    private_subnet_tags = {
-        "kubernetes.io/cluster/myapp-eks-cluster" = "shared"
-        "kubernetes.io/role/internal-elb" = 1    
+        instance_types = ["t2.small"]
     }
+  }
 
+  # configure cluster endpoint : 
+  endpoint_private_access = false
+  endpoint_public_access = true
 
 }
