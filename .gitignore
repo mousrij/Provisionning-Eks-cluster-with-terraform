@@ -1,0 +1,20 @@
+# exclude tfstate files 
+*.tfstate
+*.tfstate.*
+
+#exclude tf folders 
+.terraform.*/
+.terraform/
+
+
+#exclude tf environment variable
+# *.tfvars
+test/.terraform.lock.hcl
+
+# ignore cli configuration files 
+.terraformrc
+.terraform.rc
+
+# ignore macosx system file, with the folder metadata
+.DS_Store
+.terraform.lock.hcl
